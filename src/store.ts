@@ -50,6 +50,20 @@ export const DEFAULT_GLOB = "**/*.md";
 export const DEFAULT_MULTI_GET_MAX_BYTES = 10 * 1024; // 10KB
 export const DEFAULT_EMBED_MAX_DOCS_PER_BATCH = 64;
 export const DEFAULT_EMBED_MAX_BATCH_BYTES = 64 * 1024 * 1024; // 64MB
+export const DEFAULT_EMBED_MAX_DURATION_MS = 30 * 60 * 1000;
+
+const EMBED_MAX_DURATION_ENV = "QMD_EMBED_MAX_DURATION_MS";
+
+function resolveEmbedMaxDurationMs(env: NodeJS.ProcessEnv = process.env): number {
+  const raw = env[EMBED_MAX_DURATION_ENV];
+  if (raw === undefined || raw.trim() === "") return DEFAULT_EMBED_MAX_DURATION_MS;
+
+  const value = Number(raw);
+  if (!Number.isInteger(value) || value < 0) {
+    throw new Error(`${EMBED_MAX_DURATION_ENV} must be a non-negative integer number of milliseconds`);
+  }
+  return value;
+}
 
 const EMBED_FINGERPRINT_PROBE_QUERY = "__qmd_embedding_query_probe__";
 const EMBED_FINGERPRINT_PROBE_TITLE = "__qmd_embedding_title_probe__";
@@ -1835,7 +1849,7 @@ export async function generateEmbeddings(
     }
 
     return { chunksEmbedded, errors: activeErrorCount(), failures: failureList() };
-  }, { maxDuration: 30 * 60 * 1000, name: 'generateEmbeddings' });
+  }, { maxDuration: resolveEmbedMaxDurationMs(), name: 'generateEmbeddings' });
 
   return {
     docsProcessed: totalDocs,
