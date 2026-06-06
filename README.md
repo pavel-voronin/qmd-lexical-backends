@@ -12,13 +12,13 @@ You can read more about QMD's progress in the [CHANGELOG](CHANGELOG.md).
 
 ```sh
 # Install globally (Node or Bun)
-npm install -g @tobilu/qmd
+npm install -g qmd-lexical-backends
 # or
-bun install -g @tobilu/qmd
+bun install -g qmd-lexical-backends
 
 # Or run directly
-npx @tobilu/qmd ...
-bunx @tobilu/qmd ...
+npx qmd-lexical-backends ...
+bunx qmd-lexical-backends ...
 
 # Create collections for your notes, docs, and meeting transcripts
 qmd collection add ~/notes --name notes
@@ -142,13 +142,13 @@ Use QMD as a library in your own Node.js or Bun applications.
 #### Installation
 
 ```sh
-npm install @tobilu/qmd
+npm install qmd-lexical-backends
 ```
 
 #### Quick Start
 
 ```typescript
-import { createStore } from '@tobilu/qmd'
+import { createStore } from 'qmd-lexical-backends'
 
 const store = await createStore({
   dbPath: './my-index.sqlite',
@@ -170,7 +170,7 @@ await store.close()
 `createStore()` accepts three modes:
 
 ```typescript
-import { createStore } from '@tobilu/qmd'
+import { createStore } from 'qmd-lexical-backends'
 
 // 1. Inline config — no files needed besides the DB
 const store = await createStore({
@@ -237,6 +237,80 @@ const vecResults = await store.searchVector("how users log in", { limit: 10 })
 const expanded = await store.expandQuery("auth flow", { intent: "user login" })
 const results4 = await store.search({ queries: expanded })
 ```
+
+#### Custom Lexical Backends
+
+QMD uses SQLite FTS5 by default, but the lexical search layer is pluggable.
+Custom backends do not replace QMD's store: they return references to documents
+that already exist in QMD's SQLite database, and QMD hydrates those hits before
+snippets, context lookup, RRF fusion, and reranking.
+
+```typescript
+import { createStore, type LexicalSearchBackend } from 'qmd-lexical-backends'
+
+const lexicalBackend: LexicalSearchBackend = {
+  name: "my-lexical-backend",
+  async search(request) {
+    // request: { query, limit, collectionName, dbPath }
+    return [
+      // score is normalized 0..1, higher is better
+      { filepath: "qmd://docs/auth.md", score: 0.93 },
+    ]
+  },
+}
+
+const store = await createStore({
+  dbPath: "./index.sqlite",
+  config: {
+    collections: {
+      docs: { path: "/path/to/docs", pattern: "**/*.md" },
+    },
+  },
+  lexicalBackend,
+})
+
+const results = await store.searchLex("auth middleware")
+```
+
+For CLI deployments, configure a command backend in `index.yml`. QMD writes a
+JSON request to the command's stdin and expects either a JSON array of hits or an
+object with a `hits` array on stdout:
+
+```yaml
+search:
+  lexicalBackend:
+    type: command
+    name: tantivy
+    command: qmd-lexical-backend-tantivy
+    args: ["search", "--index-dir", "/path/to/tantivy-index"]
+    timeoutMs: 5000
+```
+
+Command request:
+
+```json
+{
+  "query": "auth middleware",
+  "limit": 20,
+  "collectionName": "docs",
+  "dbPath": "/home/user/.cache/qmd/index.sqlite"
+}
+```
+
+Command response:
+
+```json
+{
+  "hits": [
+    { "documentId": 123, "score": 0.96, "rawScore": 42.1 },
+    { "filepath": "qmd://docs/auth.md", "score": 0.93 }
+  ]
+}
+```
+
+Supported hit references are `documentId`, `hash`, `docid`, `filepath`, or
+`collectionName` + `path`. QMD keeps `SearchResult.source === "fts"` for all
+lexical backends and adds `SearchResult.lexicalBackend` for observability.
 
 #### Retrieval
 
@@ -349,7 +423,7 @@ import type {
   CollectionConfig,    // Inline config shape
   IndexStatus,         // From getStatus()
   IndexHealthInfo,     // From getIndexHealth()
-} from '@tobilu/qmd'
+} from 'qmd-lexical-backends'
 ```
 
 Utility exports:
@@ -360,7 +434,7 @@ import {
   addLineNumbers,              // Add line numbers to text
   DEFAULT_MULTI_GET_MAX_BYTES, // Default max file size for multiGet (10KB)
   Maintenance,                 // Database maintenance operations
-} from '@tobilu/qmd'
+} from 'qmd-lexical-backends'
 ```
 
 #### Lifecycle
@@ -436,11 +510,12 @@ The SDK requires explicit `dbPath` — no defaults are assumed. This makes it sa
 
 ## Score Normalization & Fusion
 
-### Search Backends
+### Lexical Backends
 
 | Backend | Raw Score | Conversion | Range |
 |---------|-----------|------------|-------|
 | **FTS (BM25)** | SQLite FTS5 BM25 | `Math.abs(score)` | 0 to ~25+ |
+| **Custom lexical** | Backend-defined | Must return normalized `score` | 0.0 to 1.0 |
 | **Vector** | Cosine distance | `1 / (1 + distance)` | 0.0 to 1.0 |
 | **Reranker** | LLM 0-10 rating | `score / 10` | 0.0 to 1.0 |
 
@@ -518,9 +593,9 @@ Supported model families:
 ## Installation
 
 ```sh
-npm install -g @tobilu/qmd
+npm install -g qmd-lexical-backends
 # or
-bun install -g @tobilu/qmd
+bun install -g qmd-lexical-backends
 ```
 
 ### Development
